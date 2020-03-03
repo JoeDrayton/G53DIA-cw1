@@ -20,8 +20,10 @@ public class AreaScan {
     public ArrayList<Task> recyclingTasks = new ArrayList<>();
     public Point location;
 
-    public void scanCells(Cell[][] view, Point position) {
+    public AreaScan(Point position){
         location = position;
+    }
+    public void scanCells(Cell[][] view) {
         for (int i = 0; i < view.length; i++) {
             for (int j = 0; j < view.length; j++) {
                 Cell currentCell = view[i][j];
