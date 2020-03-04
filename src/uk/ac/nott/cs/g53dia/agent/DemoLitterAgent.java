@@ -10,6 +10,7 @@ import java.util.Random;
 import static java.lang.Math.abs;
 import static java.lang.Math.floorMod;
 
+
 /**
  * A simple example LitterAgent
  *
@@ -25,24 +26,26 @@ enum AgentState {
     INIT, EXPLORING, CHARGING, MOVETOCHARGER, FORAGING, MOVETOLITTERBIN, MOVETORECYCLINGBIN, LITTERCOLLECTION, WASTEDISPOSAL, RECYCLINGDISPOSAL, LITTERDISPOSAL;
 }
 
+enum Direction {
+    NORTH, EAST, SOUTH, WEST;
+
+    private static Direction[] vals = values();
+    public Direction next()
+    {
+        return vals[(this.ordinal()+1) % vals.length];
+    }
+}
+
 public class DemoLitterAgent extends LitterAgent {
     private static final String WASTEBIN = "class uk.ac.nott.cs.g53dia.library.WasteBin";
     private static final String WASTESTATION = "class uk.ac.nott.cs.g53dia.library.WasteStation";
     private static final String RECYCLINGBIN = "class uk.ac.nott.cs.g53dia.library.RecyclingBin";
     private static final String RECYCLINGSTATION = "class uk.ac.nott.cs.g53dia.library.RecyclingStation";
     private static final String RECHARGEPOINT = "class uk.ac.nott.cs.g53dia.library.RechargePoint";
-    private static final String EMPTYCELL = "class uk.ac.nott.cs.g53dia.library.EmptyCell";
     private static final String WASTETASK = "class uk.ac.nott.cs.g53dia.library.WasteTask";
     private static final String RECYCLINGTASK = "class uk.ac.nott.cs.g53dia.library.RecyclingTask";
-    /*public ArrayList<WasteBin> wasteBins = new ArrayList<>();
-    public ArrayList<WasteStation> wasteStations = new ArrayList<>();
-    public ArrayList<RecyclingBin> recyclingBins = new ArrayList<>();
-    public ArrayList<RecyclingStation> recyclingStations = new ArrayList<>();
-    public ArrayList<RechargePoint> rechargingStations = new ArrayList<>();
-    */
-//    public ArrayList<Task> wasteTasks = new ArrayList<>();
-  //  public ArrayList<Task> recyclingTasks = new ArrayList<>();
     private AgentState agentState;
+    private AgentState previousState;
     public Point explorationLocation, originalPoint;
     public boolean forageForRecycling, forageForWaste;
     public ArrayList<AreaScan> regions = new ArrayList<>();
@@ -84,35 +87,37 @@ public class DemoLitterAgent extends LitterAgent {
         return closestTask;
     }
 
-    public Cell closestPointOfAll(ArrayList<?> list) {
+    public Cell closestPoint(ArrayList<?> list) {
         int distance, closestDistance;
         closestDistance = 1000;
-        Cell closestPointOfAll = null;
+        Cell closestPoint = null;
         for (Object element : list) {
             Cell point = (Cell) element;
             distance = point.getPoint().distanceTo(getPosition());
             if (distance < closestDistance) {
                 closestDistance = distance;
-                closestPointOfAll = point;
+                closestPoint = point;
             }
         }
-        return closestPointOfAll;
+        return closestPoint;
     }
 
     public Task evaluateTask(ArrayList<Task> list, Task currentTask) {
         int newScore, currentScore, distanceToTask;
         int distanceToNewTask;
         if(currentTask == null){
-            distanceToTask = 1000;
-        } else {
-            distanceToTask = currentTask.getPosition().distanceTo(getPosition());
+            agentState = AgentState.EXPLORING;
         }
         Task bestTask = currentTask;
         for (Object task : list) {
             Task potentialTask = (Task) task;
-            newScore = potentialTask.getAmount();
-            currentScore = currentTask.getAmount();
+            newScore = potentialTask.getRemaining();
             distanceToNewTask = potentialTask.getPosition().distanceTo(getPosition());
+            currentScore = bestTask.getRemaining();
+            distanceToTask = bestTask.getPosition().distanceTo(getPosition());
+
+            if(currentScore == 0) {currentScore = 1;}
+            if(distanceToTask == 0){distanceToTask = 1;}
             if ((newScore/currentScore) > distanceToNewTask/distanceToTask) {
                 bestTask = potentialTask;
                 System.out.println("new task is close enough to be worthy of switching");
@@ -128,7 +133,7 @@ public class DemoLitterAgent extends LitterAgent {
     }
 
     public Task superiorTask(Task currentTask, Cell[][] view) {
-        //scanCells(view);
+    evaluateRegion(view);
         if(forageForWaste) {
             currentTask = closestTask(currentRegion.wasteTasks);
         } else if(forageForRecycling){
@@ -138,14 +143,14 @@ public class DemoLitterAgent extends LitterAgent {
         }
         Task currentBest = currentTask;
         if (!currentRegion.recyclingTasks.isEmpty()) {
-            System.out.println("trying to find the best recycling");
+            //System.out.println("trying to find the best recycling");
             currentBest = evaluateTask(currentRegion.recyclingTasks, currentBest);
             if(forageForRecycling){
                 return currentBest;
             }
         }
         if (!currentRegion.wasteTasks.isEmpty()) {
-            System.out.println("trying to find the best waste");
+            //System.out.println("trying to find the best waste");
             if(forageForWaste){
                 return currentBest;
             }
@@ -175,64 +180,75 @@ public class DemoLitterAgent extends LitterAgent {
         }
     }
 
-    public void regionSelect(){
-        AreaScan bestRegion = currentRegion;
-        int combinedPotential, wastePotential, recyclingPotential, distanceToRegion;
-        int regionScore = 0;
-        for(AreaScan region : regions){
-            wastePotential = region.wasteTasks.size();
-            recyclingPotential = region.recyclingTasks.size();
-            combinedPotential = wastePotential + recyclingPotential;
-            distanceToRegion = getPosition().distanceTo(region.location);
-            int newRegionScore = combinedPotential/distanceToRegion;
-            if(newRegionScore > regionScore){
-                regionScore = newRegionScore;
-                bestRegion = region;
-            }
-        }
-        this.currentRegion = bestRegion;
-    }
-
-    public Point closestPointOfAllOfAll(ArrayList<?> list) {
+    public Point closestPointOfAll(ArrayList<?> list) {
         switch (list.getClass().toString()) {
             case RECHARGEPOINT:
-                return closestPointOfAll(currentRegion.rechargingStations).getPoint();
+                ArrayList<Point> rechargingStations = new ArrayList<>();
+                for (AreaScan region : regions) {
+                    rechargingStations.add(closestPoint(region.rechargingStations).getPoint());
+                }
+                return closestPoint(rechargingStations).getPoint();
             case RECYCLINGBIN:
-                return closestPointOfAll(currentRegion.recyclingBins).getPoint();
+                ArrayList<Point> recyclingBins = new ArrayList<>();
+                for (AreaScan region : regions) {
+                    recyclingBins.add(closestPoint(region.recyclingBins).getPoint());
+                }
+                return closestPoint(recyclingBins).getPoint();
             case RECYCLINGSTATION:
-                return closestPointOfAll(currentRegion.recyclingStations).getPoint();
+                ArrayList<Point> recyclingStations = new ArrayList<>();
+                for (AreaScan region : regions) {
+                    recyclingStations.add(closestPoint(region.recyclingStations).getPoint());
+                }
+                return closestPoint(recyclingStations).getPoint();
             case WASTEBIN:
-                return closestPointOfAll(currentRegion.wasteStations).getPoint();
+                ArrayList<Point> wasteBins = new ArrayList<>();
+                for (AreaScan region : regions) {
+                    wasteBins.add(closestPoint(region.wasteBins).getPoint());
+                }
+                return closestPoint(wasteBins).getPoint();
             case WASTESTATION:
-                return closestPointOfAll(currentRegion.wasteStations).getPoint();
+                ArrayList<Point> wasteStations = new ArrayList<>();
+                for (AreaScan region : regions) {
+                    wasteStations.add(closestPoint(region.wasteStations).getPoint());
+                }
+                return closestPoint(wasteStations).getPoint();
             default:
                 return RECHARGE_POINT_LOCATION;
         }
     }
+
     public Point closestRecharge(){
-        Point closestPointOfAll, newPoint;
+        Point closestPoint, newPoint;
         if(!currentRegion.rechargingStations.isEmpty()){
-            closestPointOfAll = closestPointOfAll(currentRegion.rechargingStations).getPoint();
-            return closestPointOfAll;
+            closestPoint = closestPoint(currentRegion.rechargingStations).getPoint();
+            return closestPoint;
         } else {
-            closestPointOfAll = RECHARGE_POINT_LOCATION;
+            closestPoint = RECHARGE_POINT_LOCATION;
             for (AreaScan region : regions) {
                 if (!region.rechargingStations.isEmpty()) {
-                    newPoint = closestPointOfAll(region.rechargingStations).getPoint();
-                    if (newPoint.distanceTo(getPosition()) < closestPointOfAll.distanceTo(getPosition())) {
-                        closestPointOfAll = newPoint;
+                    newPoint = closestPoint(region.rechargingStations).getPoint();
+                    if (newPoint.distanceTo(getPosition()) < closestPoint.distanceTo(getPosition())) {
+                        closestPoint = newPoint;
                     }
                 } else {
                     System.out.println("Nothing in this region");
                 }
             }
         }
-        return closestPointOfAll;
+        return closestPoint;
     }
 
     private Task currentTask;
 
     public Action senseAndAct(Cell[][] view, long timestep) {
+        if(timestep > 9500){
+            timestep = timestep;
+        }
+        if (getChargeLevel()!= MAX_CHARGE && abs(getPosition().distanceTo(closestRecharge())-getChargeLevel()) < 5) {
+            System.out.println("shit im hungry");
+            previousState = agentState;
+            agentState = AgentState.MOVETOCHARGER;
+        }
         switch (agentState) {
             case INIT:
                 forageForRecycling = false;
@@ -241,8 +257,7 @@ public class DemoLitterAgent extends LitterAgent {
                 currentRegion.scanCells(view);
                 regions.add(currentRegion);
                 this.originalPoint = getPosition();
-                this.explorationLocation = new Point(this.originalPoint.getX() + 30 + r.nextInt(60), this.originalPoint.getY() + 30 + r.nextInt(60));
-
+                this.explorationLocation = new Point(this.originalPoint.getX() +30, this.originalPoint.getY() + 30 + r.nextInt(60));
                 if (currentRegion.wasteTasks.isEmpty()) {
                     if (currentRegion.recyclingTasks.isEmpty()) {
                         agentState = AgentState.EXPLORING;
@@ -250,30 +265,22 @@ public class DemoLitterAgent extends LitterAgent {
                 }
 
             case EXPLORING:
-                evaluateRegion(view);
-                if (getChargeLevel() <= 150) {
-                    System.out.println("shit im hungry");
-                    agentState = AgentState.MOVETOCHARGER;
-                    return new MoveTowardsAction(closestRecharge());
-                } else if (this.currentTask == null) {
+             evaluateRegion(view);
+              if (this.currentTask == null) {
                     initCurrentTask();
                     if (this.explorationLocation.equals(getPosition())) {
-                        if(timestep%2 == 0 ){
-                            regionSelect();
-                            this.explorationLocation = currentRegion.location;
-                            System.out.println("I'm returning to previously charted territory");
-                        } else {
-                            this.explorationLocation = new Point(this.originalPoint.getX() + r.nextInt(100), this.originalPoint.getY() + r.nextInt(100));
-                            System.out.println("Into the unknown!");
-                        }
+                        this.explorationLocation = new Point(this.originalPoint.getX() + r.nextInt(100), this.originalPoint.getY() + r.nextInt(100));
+                        System.out.println("Into the unknown!");
                     }
                     System.out.println("im looking for " + this.explorationLocation.toString());
                     return new MoveTowardsAction(this.explorationLocation);
-                }
+              } else {
+                  agentState = AgentState.MOVETOLITTERBIN;
+              }
 
             case MOVETOLITTERBIN:
                 if (this.currentTask.getClass().toString().equals(WASTETASK)) {
-                    if (getCurrentCell(view) instanceof WasteBin && (getCurrentCell(view).getPoint().equals(this.getPosition()))) {
+                    if (getCurrentCell(view) instanceof WasteBin && getPosition().equals(this.currentTask.getPosition())) {
                         System.out.println("I must feed on filth");
                         agentState = AgentState.LITTERDISPOSAL;
                         return new LoadAction(this.currentTask);
@@ -292,7 +299,7 @@ public class DemoLitterAgent extends LitterAgent {
                         }
                     }
                 } else if (this.currentTask.getClass().toString().equals(RECYCLINGTASK)) {
-                    if (getCurrentCell(view) instanceof RecyclingBin &&getCurrentCell(view).getPoint().equals(this.getPosition())) {
+                    if (getCurrentCell(view) instanceof RecyclingBin && getPosition().equals(this.currentTask.getPosition())) {
                         System.out.println("I must feed on recyclable material");
                         agentState = AgentState.LITTERDISPOSAL;
                         return new LoadAction(this.currentTask);
@@ -314,18 +321,21 @@ public class DemoLitterAgent extends LitterAgent {
 
             case MOVETOCHARGER:
                 if (getCurrentCell(view) instanceof RechargePoint) {
+                    agentState = AgentState.EXPLORING;
                     if (getChargeLevel() == MAX_CHARGE) {
-                        if(forageForRecycling || forageForWaste){
-                            agentState = AgentState.FORAGING;
-                        } else {
-                            agentState = AgentState.EXPLORING;
-                        }
+                        System.out.println("that was delicious");
+                        agentState = previousState;
                     } else {
+                        agentState = AgentState.EXPLORING;
                         System.out.println("that is delicious");
+                        if(getLitterLevel()!=0){
+                            agentState = AgentState.LITTERDISPOSAL;
+                        } else if(getRecyclingLevel() != 0){
+                            agentState = AgentState.LITTERDISPOSAL;
+                        }
                         return new RechargeAction();
                     }
                 } else {
-                    Cell closestRecharge = closestPointOfAll(currentRegion.rechargingStations);
                     System.out.println("fuck i hope i get there quick");
                     return new MoveTowardsAction(closestRecharge());
                 }
@@ -339,8 +349,8 @@ public class DemoLitterAgent extends LitterAgent {
                         this.currentTask = null;
                         System.out.println("finding a new task");
                         this.currentTask = closestTask(currentRegion.wasteTasks);
-                        if(getPosition().distanceTo(closestPointOfAll(currentRegion.wasteStations).getPoint())/
-                                closestPointOfAllOfAll(currentRegion.wasteTasks).distanceTo(this.currentTask.getPosition()) > 0.75){
+                        if(getPosition().distanceTo(closestPoint(currentRegion.wasteStations).getPoint())/
+                                closestPointOfAll(currentRegion.wasteTasks).distanceTo(this.currentTask.getPosition()) > 0.5){
                             System.out.println("Gonna dump this shit real quick");
                             forageForRecycling = false;
                             agentState = AgentState.LITTERDISPOSAL;
@@ -365,7 +375,8 @@ public class DemoLitterAgent extends LitterAgent {
                         this.currentTask = null;
                         System.out.println("finding a new task");
                         this.currentTask = closestTask(currentRegion.recyclingTasks);
-                        if(getPosition().distanceTo(closestPointOfAll(currentRegion.recyclingStations).getPoint())/closestPointOfAllOfAll(currentRegion.recyclingTasks).distanceTo(this.currentTask.getPosition()) > 0.75){
+                        if(getPosition().distanceTo(closestPoint(currentRegion.recyclingStations).getPoint())/
+                                closestPointOfAll(currentRegion.recyclingTasks).distanceTo(this.currentTask.getPosition()) > 0.5){
                             System.out.println("Gonna dump this shit real quick");
                             forageForRecycling = false;
                             agentState = AgentState.LITTERDISPOSAL;
@@ -389,7 +400,7 @@ public class DemoLitterAgent extends LitterAgent {
             case LITTERDISPOSAL:
                 evaluateRegion(view);
                 if (this.currentTask.getClass().toString().equals(WASTETASK)) {
-                    if(getWasteLevel() < MAX_LITTER/5 && !currentRegion.wasteTasks.isEmpty()){
+                    if(getWasteLevel() < MAX_LITTER/20 && !currentRegion.wasteTasks.isEmpty()){
                         agentState = AgentState.FORAGING;
                         forageForRecycling = false;
                         forageForWaste = true;
@@ -401,15 +412,19 @@ public class DemoLitterAgent extends LitterAgent {
                         agentState = AgentState.EXPLORING;
                         return new DisposeAction();
                     } else if(getWasteLevel() != 0){
-                        Cell closestLitterDisposal = closestPointOfAll(currentRegion.wasteStations);
+                        Point closestLitterDisposal;
+                        try {
+                            closestLitterDisposal = closestPoint(currentRegion.wasteStations).getPoint();
+                        } catch (NullPointerException e) {
+                            closestLitterDisposal = closestPointOfAll(currentRegion.wasteStations);
+                        }
                         System.out.println("Need to grab that waste");
-                        return new MoveTowardsAction(closestLitterDisposal.getPoint());
+                        return new MoveTowardsAction(closestLitterDisposal);
                     } else {
                         agentState = AgentState.EXPLORING;
-                        return new MoveAction(0);
                     }
                 } else if (this.currentTask.getClass().toString().equals(RECYCLINGTASK)) {
-                    if(getRecyclingLevel() < MAX_LITTER/5 && !currentRegion.recyclingTasks.isEmpty()){
+                    if(getRecyclingLevel() < MAX_LITTER/20 && !currentRegion.recyclingTasks.isEmpty()){
                         agentState = AgentState.FORAGING;
                         forageForRecycling = true;
                         forageForWaste = false;
@@ -421,16 +436,20 @@ public class DemoLitterAgent extends LitterAgent {
                         forageForWaste = false;
                         return new DisposeAction();
                     } else if(getRecyclingLevel() != 0){
-                        Cell closestRecyclingDisposal = closestPointOfAll(currentRegion.recyclingStations);
+                        Point closestRecyclingDisposal;
+                        try {
+                            closestRecyclingDisposal = closestPoint(currentRegion.recyclingStations).getPoint();
+                        } catch (NullPointerException e) {
+                            closestRecyclingDisposal = closestPointOfAll(currentRegion.recyclingStations);
+                        }
                         System.out.println("Need to grab that recycling");
-                        return new MoveTowardsAction(closestRecyclingDisposal.getPoint());
+                        return new MoveTowardsAction(closestRecyclingDisposal);
                     } else {
                         agentState = AgentState.EXPLORING;
-                        return new MoveAction(0);
                     }
                 }
             default:
-                return new MoveAction(0);
+                return null;
         }
     }
 
